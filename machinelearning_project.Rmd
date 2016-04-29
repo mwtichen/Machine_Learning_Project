@@ -1,0 +1,97 @@
+---
+title: "MachineLearningProject"
+author: "Matthew Tichenor"
+date: "Thursday, April 28, 2016"
+output: html_document
+---
+
+## Getting and Cleaning the Data
+
+Assuming that the training and testing datasets have been saved in the current working directory, let's load the dataset into R.
+
+```{r}
+training <- read.csv('C:/Users/yousef/Desktop/Coursera/pml-training.csv',header=TRUE)
+testing <- read.csv('C:/Users/yousef/Desktop/Coursera/pml-testing.csv',header=TRUE)
+```
+
+Let's look at the size of our datasets and the variables.
+
+```{r}
+dim(training)
+dim(testing)
+```
+It's always a good idea to take a look at the dataset.
+```{r,eval=FALSE}
+View(training)
+```
+
+Having viewed the dataset, there are several variables have missing or NA values. I selected and used only those variables that have complete cases.
+
+```{r}
+log <- (training[1,] != 'NA') & (training[1,] != '') #this vector contains NA
+log <- log %in% TRUE #Now it only has TRUE or FALSE
+training <- training[,log]
+testing <- testing[,log]
+```
+
+The first five variables are the observation number, username, and various timestamps, which should have no predictive value if we wish to use our model with other participants and at different dates.
+
+I decided to remove those variables from the datasets.
+```{r}
+training <- training[,-c(1,2,3,4,5)]
+testing <- testing[,-c(1,2,3,4,5)]
+```
+
+## Model Building and Selection
+
+Now, in order to estimate the out of sample error, I will treat the testing dataset as a validation dataset, then split the training dataset into a training and testing dataset. At this point I need to seed the random number generator and load the caret package.
+
+```{r}
+library(caret)
+set.seed(1101)
+validation <- testing
+inTrain <- createDataPartition(y=training$classe,p=0.7,list=FALSE)
+testing <- training[-inTrain,]
+training <- training[inTrain,]
+```
+
+Because dependent variable, classe, is a factor variable, I'm ruling out multivariate regression as an option. I'm thinking boosting with trees or random forest is a good method. I'm going to evaluate both and see which is best on the training dataset.
+
+```{r}
+library(doParallel)
+cl <- makeCluster(detectCores())
+registerDoParallel(cl)
+model1 <- train(classe ~ .,method="gbm",data=training,verbose=FALSE, trControl=trainControl(method='cv',number=5))
+model2 <- train(classe ~ ., method="rf",data=training,trControl=trainControl(method='cv',number=5))
+```
+
+There are two things to notice from the code above. First, is that I used parallel processing to speed things up in the first 3 lines of code. Second, in both models I used 5-fold Cross Validation.
+
+
+I used accuracy to evaluate the models. Between the two methods, random forest had a higher accuracy on the training dataset. In fact, with the chosen seed, random forest was 100 % accurate.
+
+```{r}
+pred1 <- predict(model1,training)
+confusionMatrix(pred1,training$classe)
+pred2 <- predict(model2,training)
+confusionMatrix(pred2,training$classe)
+```
+
+Because of these results, I decided to choose random forest as the model.
+
+Now, the out of sample error should be greater than the in sample error. I expect that the accuracy will decrease on the validation set. To estimate the out of sample error, I predicted classe for the testing dataset, then computed the accuracy. The error is the misclassification rate, which is 1 minus the accuracy. Because of this relationship, it suffices to examine only the accuracy. My estimate for the out of sample accuracy will be the accuracy for the testing set.
+
+```{r}
+testpred2 <- predict(model2,testing)
+confusionMatrix(testpred2,testing$classe)
+```
+
+## Predictions on the Test Set
+
+Finally, I predicted the classe on the validation test, i.e. the set with only 20 observations. Having scored a 20 out of 20 on the quiz, the predictions should all be correct.
+
+
+```{r}
+final_predictions <- predict(model2,validation)
+```
+
